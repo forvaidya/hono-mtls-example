@@ -6,6 +6,9 @@
     "dev:spa": "cd spa && npm run dev",
     "dev:backend": "node --import tsx src/index.ts",
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:spa\"",
+    "restart:spa": "lsof -ti:3000 | xargs kill -9 2>/dev/null; sleep 1; npm run dev:spa",
+    "restart:backend": "lsof -ti:3001 | xargs kill -9 2>/dev/null; sleep 1; npm run dev:backend",
+    "restart:all": "lsof -ti:3000,3001 | xargs kill -9 2>/dev/null; sleep 1; npm run dev:all",
     "build": "tsc",
     "start": "node dist/index.js"
   },
