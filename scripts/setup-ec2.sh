@@ -75,6 +75,9 @@ fi
 # Set up systemd service
 echo "⚙️  Setting up systemd service..."
 REPO_PATH=$(pwd)
+CURRENT_USER=$(whoami)
+echo "Running as user: $CURRENT_USER"
+
 sudo tee /etc/systemd/system/hono-backend.service > /dev/null <<EOF
 [Unit]
 Description=Hono Backend API with mTLS
@@ -82,7 +85,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
+User=$CURRENT_USER
 WorkingDirectory=$REPO_PATH
 Environment="NODE_ENV=production"
 ExecStart=/usr/bin/node --import tsx src/index.ts
