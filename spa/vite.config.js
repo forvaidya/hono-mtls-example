@@ -7,11 +7,12 @@ const certsDir = path.join(import.meta.dirname, '..', 'certs')
 const hasCerts = fs.existsSync(path.join(certsDir, 'client-cert.pem'))
 
 const proxyConfig = {
+  target: 'https://api.awanipro.com',
   changeOrigin: true,
   cookieDomainRewrite: 'localhost',
 }
 
-// For production (EC2), use mTLS with client certificate
+// Use mTLS with client certificate if available
 if (hasCerts) {
   Object.assign(proxyConfig, {
     cert: fs.readFileSync(path.join(certsDir, 'client-cert.pem')),
@@ -27,14 +28,8 @@ export default defineConfig({
     port: 3000,
     allowedHosts: ['oidc.awanipro.com'],
     proxy: {
-      '/api': {
-        target: hasCerts ? 'https://api.awanipro.com' : 'http://localhost:3001',
-        ...proxyConfig,
-      },
-      '/health': {
-        target: hasCerts ? 'https://api.awanipro.com' : 'http://localhost:3001',
-        ...proxyConfig,
-      },
+      '/api': proxyConfig,
+      '/health': proxyConfig,
     },
   },
 })

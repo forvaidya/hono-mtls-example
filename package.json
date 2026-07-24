@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "node --import tsx src/index.ts",
-    "dev:all": "concurrently \"npm run dev\" \"cd spa && npm run dev\"",
-    "dev:restart": "lsof -ti:3000,3001 | xargs kill -9 2>/dev/null; npm run dev:all",
+    "dev:spa": "cd spa && npm run dev",
+    "dev:backend": "node --import tsx src/index.ts",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:spa\"",
     "build": "tsc",
     "start": "node dist/index.js"
   },
