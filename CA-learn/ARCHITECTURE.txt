@@ -1,0 +1,223 @@
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│               CA-LEARN: Cryptographic Proof of mTLS Trust                       │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+═════════════════════════════════════════════════════════════════════════════════════
+ CERTIFICATE HIERARCHY: Two Independent Trust Anchors
+═════════════════════════════════════════════════════════════════════════════════════
+
+APPLE (Frontend)                          ORANGE (Backend)
+─────────────────                         ──────────────────
+
+CA (Root of Trust)                        CA (Root of Trust)
+  │                                         │
+  ├─ Self-signed (self-contained)          ├─ Self-signed (self-contained)
+  │  Valid: 10 years                       │  Valid: 10 years
+  │                                        │
+  ├─ SIGNS ✓                               ├─ SIGNS ✓
+  │  frontend-server.pem                   │  backend-server.pem
+  │  (for HTTPS/mTLS server)               │  (for HTTPS/mTLS server)
+  │                                        │
+  └─ SIGNS ✓                               └─ SIGNS ✓
+     frontend-client.pem                      backend-client.pem
+     (for client verification)                (for client verification)
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ CRYPTOGRAPHIC CHAIN: Apple Verifies Orange
+═════════════════════════════════════════════════════════════════════════════════════
+
+Apple's Verification Process
+─────────────────────────────
+
+When Apple receives Orange's certificate:
+
+  Orange presents: backend-server.pem
+         ↓
+  Apple loads: backend-ca.pem (received separately)
+         ↓
+  Verify signature:
+    1. Extract signature from backend-server.pem
+    2. Compute cert's digest
+    3. Use backend-ca.pem's public key to decrypt signature
+    4. Compare digests
+         ↓
+  ✓ SIGNATURE VALID
+    (proves Orange-CA signed this cert, not forged)
+         ↓
+  Check validity:
+    1. Is cert within issue date → expiry date?
+    2. Is cert within Apple's time?
+         ↓
+  ✓ VALIDITY VALID
+         ↓
+  ✓✓ TRUST ESTABLISHED
+    Apple now trusts Orange
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ CROSS-VERIFICATION ISOLATION
+═════════════════════════════════════════════════════════════════════════════════════
+
+Apple tries to verify Orange cert with wrong CA
+──────────────────────────────────────────────
+
+  Orange presents: backend-server.pem (signed by backend-ca)
+         ↓
+  Apple tries: verify with frontend-ca.pem (WRONG)
+         ↓
+  Extract signature from backend-server.pem
+  Compute digest
+  Use frontend-ca.pem's public key to decrypt signature
+         ↓
+  ✗ DIGESTS DO NOT MATCH
+    (signature was created with backend-ca's private key,
+     not frontend-ca's private key)
+         ↓
+  ✗✗ VERIFICATION FAILS
+    Proves independence: each CA is unique
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ FILE DISTRIBUTION RULES
+═════════════════════════════════════════════════════════════════════════════════════
+
+PUBLIC (Can distribute, share in repos, upload to S3):
+  ✓ frontend/ca-cert.pem       ← Trust anchor for Apple
+  ✓ backend/ca-cert.pem        ← Trust anchor for Orange
+
+PRIVATE (Never share, never commit, never in S3):
+  ✗ frontend/ca-key.pem        ← Creates all Apple's signatures
+  ✗ backend/ca-key.pem         ← Creates all Orange's signatures
+  ✗ *-key.pem files            ← Private keys (environment-specific)
+
+DEPLOYMENT ONLY (Not needed after generation):
+  - *.csr files                ← Delete after signing
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ TRUST ESTABLISHMENT PATTERN
+═════════════════════════════════════════════════════════════════════════════════════
+
+Step 1: Initialization (One-Time)
+─────────────────────────────────
+
+  Apple generates:                      Orange generates:
+    ├─ apple-ca-key.pem (private)        ├─ orange-ca-key.pem (private)
+    └─ apple-ca-cert.pem (public)        └─ orange-ca-cert.pem (public)
+
+  Then generates leaf certs:            Then generates leaf certs:
+    ├─ apple-server-cert.pem              ├─ orange-server-cert.pem
+    │  (signed with apple-ca-key)         │  (signed with orange-ca-key)
+    ├─ apple-server-key.pem               ├─ orange-server-key.pem
+    ├─ apple-client-cert.pem              ├─ orange-client-cert.pem
+    │  (signed with apple-ca-key)         │  (signed with orange-ca-key)
+    └─ apple-client-key.pem               └─ orange-client-key.pem
+
+
+Step 2: Trust Exchange (Share CA certs only)
+─────────────────────────────────────────────
+
+  Apple ←→ Orange
+
+  Apple sends: apple-ca-cert.pem (public, safe)
+  Orange sends: orange-ca-cert.pem (public, safe)
+
+  Neither sends private keys
+
+
+Step 3: Verification (Mutual Trust)
+────────────────────────────────────
+
+  When Apple verifies Orange:
+    1. Apple has: orange-ca-cert.pem
+    2. Orange presents: orange-server-cert.pem
+    3. Apple verifies signature: ✓ (valid, signed by orange-ca)
+    4. Apple trusts Orange
+
+  When Orange verifies Apple:
+    1. Orange has: apple-ca-cert.pem
+    2. Apple presents: apple-client-cert.pem
+    3. Orange verifies signature: ✓ (valid, signed by apple-ca)
+    4. Orange trusts Apple
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ CRYPTOGRAPHIC OPERATIONS
+═════════════════════════════════════════════════════════════════════════════════════
+
+Certificate Generation
+──────────────────────
+
+1. Generate private key (RSA 4096-bit)
+   openssl genrsa -out private-key.pem 4096
+   → Creates: private-key.pem
+
+2. Create certificate signing request (CSR)
+   openssl req -new -key private-key.pem -out cert.csr
+   → Creates: cert.csr (contains public key + metadata)
+
+3. Sign CSR with CA private key
+   openssl x509 -req -in cert.csr \
+     -CA ca-cert.pem -CAkey ca-key.pem \
+     -out cert.pem
+   → Creates: cert.pem (signed certificate)
+   → Signature = encrypt(SHA256(cert_data), ca-private-key)
+
+
+Certificate Verification
+────────────────────────
+
+1. Load CA public key from ca-cert.pem
+2. Extract signature from cert.pem
+3. Compute digest: SHA256(cert_data)
+4. Decrypt signature: decrypt(signature, ca-public-key)
+5. Compare digests:
+   ✓ If match: signature is valid (not forged)
+   ✗ If mismatch: signature is invalid (forged or wrong CA)
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ INDEPENDENCE PROOF
+═════════════════════════════════════════════════════════════════════════════════════
+
+Why Apple CA cannot verify Orange certs:
+──────────────────────────────────────────
+
+Orange's certificate is signed with Orange's CA private key:
+  signature_orange = encrypt(digest, orange-ca-private-key)
+
+When Apple tries to verify with Apple's CA public key:
+  computed_digest = decrypt(signature_orange, apple-ca-public-key)
+                  ≠ actual_digest
+
+Because:
+  apple-ca-public-key CANNOT decrypt orange-ca-private-key's encryption
+  (they're from different RSA key pairs)
+
+Result: ✗ Verification fails
+Proof: ✓ Independence confirmed
+
+
+═════════════════════════════════════════════════════════════════════════════════════
+ SUMMARY
+═════════════════════════════════════════════════════════════════════════════════════
+
+Two independent CAs:
+  • Each has its own key pair (public + private)
+  • Each signs its own certificates
+  • Certificates are NOT interchangeable
+  • Trust is NOT shared until CAs exchange public certs
+
+Verification:
+  • Recipient loads sender's CA public cert
+  • Recipient verifies sender's certificate signature
+  • Cryptography proves authenticity (not forged)
+
+In mTLS:
+  • Both parties exchange CAs publicly
+  • Both verify each other's certificates
+  • Bidirectional trust established
+  • Communication is encrypted + authenticated
+
+This is the foundation of mTLS.

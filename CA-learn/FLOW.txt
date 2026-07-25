@@ -1,0 +1,244 @@
+╔═══════════════════════════════════════════════════════════════════════════════╗
+║                     mTLS COMPLETE FLOW: Apple ↔ Orange                        ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+
+═══════════════════════════════════════════════════════════════════════════════════
+ PHASE 0: OUT-OF-BAND CA EXCHANGE (Setup, happens once)
+═══════════════════════════════════════════════════════════════════════════════════
+
+Apple's Machine                          Orange's Machine
+    │                                          │
+    ├─ Generates:                             ├─ Generates:
+    │  ├─ apple-ca-key.pem (private)         │  ├─ orange-ca-key.pem (private)
+    │  └─ apple-ca-cert.pem (public)         │  └─ orange-ca-cert.pem (public)
+    │                                         │
+    ├─ Signs: apple-client-cert.pem          ├─ Signs: orange-server-cert.pem
+    │  with apple-ca-key.pem                 │  with orange-ca-key.pem
+    │                                         │
+    └─ Uploads to S3:                        └─ Uploads to S3:
+       apple-ca-cert.pem (public)               orange-ca-cert.pem (public)
+       apple-server-cert.pem (public)           orange-client-cert.pem (public)
+       
+    ┌─────────────────────────────────────────────────────────────┐
+    │                     S3 Bucket (Public)                      │
+    │  ┌─────────────────┐            ┌──────────────────┐        │
+    │  │ apple-ca.pem    │            │ orange-ca.pem    │        │
+    │  └─────────────────┘            └──────────────────┘        │
+    │  ┌─────────────────┐            ┌──────────────────┐        │
+    │  │ apple-server.   │            │ orange-client.   │        │
+    │  │ pem             │            │ pem              │        │
+    │  └─────────────────┘            └──────────────────┘        │
+    └─────────────────────────────────────────────────────────────┘
+            ↓                                  ↓
+    Apple downloads:                  Orange downloads:
+    orange-ca.pem                     apple-ca.pem
+    orange-client-cert.pem (optional) apple-server-cert.pem (optional)
+
+    ✓ Both have each other's CA cert in memory
+
+
+═══════════════════════════════════════════════════════════════════════════════════
+ PHASE 1: APPLE → ORANGE (Client Authentication)
+═══════════════════════════════════════════════════════════════════════════════════
+
+Apple (Client)                         Orange (Server)
+    │                                       │
+    ├─ "I want to connect"                 │
+    │                                       │
+    └──────────────────────────────────────>│
+                 TCP/TLS Connect             │
+
+    │                                       │
+    │              TLS Handshake            │
+    │<──────────────────────────────────────┤
+    │  Server Hello, Server Cert
+    │  (orange-server-cert.pem,
+    │   signed by orange-ca)
+    │
+
+    ✓ Apple verifies Orange:
+      │
+      ├─ Receives: orange-server-cert.pem
+      ├─ Asks: "Is this signed by orange-ca?"
+      ├─ Uses: orange-ca-cert.pem (downloaded earlier)
+      ├─ Verification:
+      │  ├─ Extract signature
+      │  ├─ Compute digest of cert data
+      │  ├─ Use orange-ca public key to decrypt signature
+      │  └─ Compare: digests match? → YES ✓
+      │
+      └─ Trust: "This is really Orange"
+
+    │                                       │
+    │ In mTLS: Client also proves identity │
+    │                                       │
+    ├─ Sends: apple-client-cert.pem        │
+    │  (signed by apple-ca)                 │
+    │                                       │
+    └──────────────────────────────────────>│
+             Client Certificate             │
+
+    ✓ Orange verifies Apple:
+      │
+      ├─ Receives: apple-client-cert.pem
+      ├─ Asks: "Is this signed by apple-ca?"
+      ├─ Uses: apple-ca-cert.pem (downloaded earlier)
+      ├─ Verification:
+      │  ├─ Extract signature
+      │  ├─ Compute digest of cert data
+      │  ├─ Use apple-ca public key to decrypt signature
+      │  └─ Compare: digests match? → YES ✓
+      │
+      └─ Trust: "This is really Apple"
+
+    │                                       │
+    │        Encryption Keys Exchanged      │
+    │<──────────────────────────────────────>│
+    │                                       │
+
+    ✓ Mutual Trust Established
+      Apple knows: I'm talking to Orange (orange-ca says so)
+      Orange knows: I'm talking to Apple (apple-ca says so)
+
+
+═══════════════════════════════════════════════════════════════════════════════════
+ PHASE 2: ENCRYPTED COMMUNICATION
+═══════════════════════════════════════════════════════════════════════════════════
+
+Apple (Client)                         Orange (Server)
+    │                                       │
+    ├─ "Get /api/me"                       │
+    │  [encrypted with session key]         │
+    │                                       │
+    └──────────────────────────────────────>│
+                                            │
+    ✓ Orange trusts this came from Apple
+      (only Apple has apple-server-key.pem)
+
+    │                                       │
+    │                               ┌─ Decrypt: "Get /api/me"
+    │                               ├─ Process: Fetch user
+    │                               └─ Response: {"id": "user123"}
+    │                                       │
+    │  {"id": "user123"}                    │
+    │  [encrypted with session key]         │
+    │                                       │
+    │<──────────────────────────────────────┤
+
+    ✓ Apple trusts this came from Orange
+      (only Orange has orange-server-key.pem)
+    
+    └─ Decrypt: "{"id": "user123"}"
+
+
+═══════════════════════════════════════════════════════════════════════════════════
+ CRYPTOGRAPHY AT WORK
+═══════════════════════════════════════════════════════════════════════════════════
+
+CERTIFICATE SIGNATURE (How Orange proves it's Orange)
+─────────────────────────────────────────────────────
+
+1. Orange creates cert data:
+   {
+     subject: "CN=api.awanipro.com",
+     publicKey: <Orange's public key>,
+     validFrom: 2026-01-01,
+     validTo: 2027-01-01
+   }
+
+2. Orange computes digest:
+   digest = SHA256(cert_data)
+   digest = 0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t
+
+3. Orange encrypts with its private key:
+   signature = encrypt(digest, orange-ca-key.pem)
+   signature = 0x9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g
+
+4. Orange puts both in certificate:
+   certificate = {
+     data: <cert_data>,
+     signature: 0x9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g
+   }
+
+
+CERTIFICATE VERIFICATION (How Apple verifies it's really Orange)
+────────────────────────────────────────────────────────────────
+
+1. Apple receives certificate:
+   certificate = {
+     data: <cert_data>,
+     signature: 0x9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g
+   }
+
+2. Apple extracts signature:
+   received_signature = 0x9z8y7x6w5v4u3t2s1r0q9p8o7n6m5l4k3j2i1h0g
+
+3. Apple computes digest from cert data:
+   computed_digest = SHA256(cert_data)
+   computed_digest = 0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t
+
+4. Apple decrypts signature with Orange's public key:
+   decrypted_digest = decrypt(received_signature, orange-ca-cert.pem)
+   decrypted_digest = 0x1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6p7q8r9s0t
+
+5. Apple compares:
+   computed_digest == decrypted_digest?
+   0x1a2b... == 0x1a2b...?
+   ✓ YES → Signature is valid
+   ✓ Proof: Only Orange's private key could create this signature
+   ✓ Conclusion: This cert was created by Orange (not forged)
+
+
+ATTACK ATTEMPT: What if Eve tries to fake the signature?
+──────────────────────────────────────────────────────────
+
+1. Eve tries to create a fake certificate:
+   {
+     subject: "CN=api.awanipro.com",  ← Claims to be Orange
+     publicKey: <Eve's public key>,    ← But it's actually Eve
+     validFrom: 2026-01-01,
+     validTo: 2027-01-01
+   }
+
+2. Eve can't sign it with Orange's private key (she doesn't have it)
+
+3. Eve tries to forge a signature:
+   forged_signature = random_bytes()  ← Not computed with Orange's key
+
+4. Apple receives Eve's cert and verifies:
+   received_signature = forged_signature (random bytes)
+   computed_digest = SHA256(eve_cert_data)
+   decrypted = decrypt(forged_signature, orange-ca-cert.pem)
+   
+5. Comparison:
+   computed_digest ≠ decrypted
+   ✗ NO → Signature is invalid
+   ✗ Conclusion: This cert was NOT created by Orange
+   ✗ Apple rejects Eve
+
+
+═══════════════════════════════════════════════════════════════════════════════════
+ SUMMARY: Why This Works
+═══════════════════════════════════════════════════════════════════════════════════
+
+✓ Trust in Certificates:
+  Only Orange's private key can create signatures verifiable by orange-ca's public key
+  So anyone with orange-ca can be 100% sure this cert came from Orange
+
+✓ Trust Transitive:
+  If you trust apple-ca, and apple-ca says "orange-ca is real",
+  you can trust certificates signed by orange-ca
+
+✓ Private Key = Identity:
+  Whoever has apple-server-key.pem can prove they're Apple
+  This is why private keys must NEVER be shared
+
+✓ Certificate = Public Claim:
+  The certificate itself is public and can't be misused
+  (without the private key, you can't make connections that claim to be this identity)
+
+✓ Mutual Authentication:
+  Both sides verify each other
+  Not just client → server, but both → both
+
+This is PKI (Public Key Infrastructure).
