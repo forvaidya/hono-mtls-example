@@ -4,6 +4,17 @@ Interactive mTLS Handshake Simulation
 
 Shows the real flow step-by-step with user interaction.
 Simulates S3 downloads, certificate exchange, verification.
+
+NAMING CLARIFICATION:
+  Apple  = FRONTEND (client, Vite SPA on port 3000)
+  Orange = BACKEND  (server, Hono API on port 3001)
+
+Apple (Frontend Client) ←→ Orange (Backend Server)
+  - Apple connects to Orange with client certificate
+  - Orange verifies Apple's cert with apple-ca-cert.pem
+  - Orange serves with server certificate
+  - Apple verifies Orange's cert with orange-ca-cert.pem
+  - Mutual trust established (mTLS)
 """
 
 import sys

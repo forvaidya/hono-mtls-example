@@ -6,6 +6,22 @@ Demonstrates cryptographic proof that:
 1. Frontend (Apple) can verify Backend (Orange) certificates
 2. Backend (Orange) can verify Frontend (Apple) certificates
 3. Both use independent CAs with independent trust chains
+
+NAMING CLARIFICATION:
+  Apple  = FRONTEND (Vite SPA client on port 3000)
+           - frontend/ca-cert.pem (Apple's CA, for verification)
+           - frontend/client-cert.pem (Apple's identity, sent to Orange)
+           - frontend/server-cert.pem (Apple's server, if acting as server)
+
+  Orange = BACKEND (Hono API server on port 3001)
+           - backend/ca-cert.pem (Orange's CA, for verification)
+           - backend/server-cert.pem (Orange's identity, sent to Apple)
+           - backend/client-cert.pem (Orange's client, if making requests)
+
+In this project (Frontend → Backend):
+  - Apple (Frontend) = CLIENT (makes request with client-cert)
+  - Orange (Backend) = SERVER (responds with server-cert)
+  - Both verify each other's certs with their respective CAs
 """
 
 import sys

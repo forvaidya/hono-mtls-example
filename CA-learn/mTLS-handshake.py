@@ -4,14 +4,18 @@ Real mTLS Handshake Model
 
 Shows what happens when Apple proves to Orange it's Apple (and vice versa).
 
+NAMING CLARIFICATION:
+  Apple  = FRONTEND (client, Vite SPA on port 3000)
+  Orange = BACKEND  (server, Hono API on port 3001)
+
 Flow:
-1. Apple & Orange exchange CA certs (out-of-band)
+1. Apple (Frontend) & Orange (Backend) exchange CA certs (out-of-band)
 2. Apple connects to Orange
-3. Apple presents client cert (signed by apple-ca)
+3. Apple presents CLIENT cert (signed by apple-ca)
 4. Orange verifies: "Is this signed by apple-ca?" → Yes → Trust Apple
-5. Orange presents server cert (signed by orange-ca)
+5. Orange presents SERVER cert (signed by orange-ca)
 6. Apple verifies: "Is this signed by orange-ca?" → Yes → Trust Orange
-7. ✓ Mutual trust established
+7. ✓ Mutual trust established (mTLS)
 """
 
 from pathlib import Path
