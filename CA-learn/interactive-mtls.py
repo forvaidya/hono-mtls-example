@@ -56,8 +56,12 @@ def get_cn(cert):
         return "Unknown"
 
 def pause():
-    """Wait for user to press Enter"""
-    input(f"{YELLOW}Press ENTER to continue...{NC}")
+    """Wait for user to press Enter (gracefully handle EOF)"""
+    try:
+        input(f"{YELLOW}Press ENTER to continue...{NC}")
+    except EOFError:
+        # Running in non-interactive mode, skip pause
+        pass
     print()
 
 def print_header(title):
